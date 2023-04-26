@@ -33,7 +33,9 @@ pool <- dbPool(drv = dbDriver(dw$driver),
                user = dw$uid,
                password = dw$pwd)
 #_______________________________________________________________________________
-#### RETRIEVE DATA FROM ONEBENTHIC DB #### 
+#### RETRIEVE DATA FROM ONEBENTHIC DB (CEFAS INTERNAL USE ONLY) #### 
+
+## If you are not a member of Cefas staff, you should access the data from .csv (see below).
 
 # CHOOSE EITHER:
 
@@ -95,6 +97,27 @@ s.samplecode,
 wtr.traits_modality
 ORDER by s.samplecode;")
 
+#_______________________________________________________________________________
+#### RETRIEVE DATA FROM .csv files (see https://doi.org/10.14466/CefasDataHub.137) #### 
+
+## Set working directory
+setwd("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicTraitsMapping")
+
+# CHOOSE EITHER:
+
+## 1.Load RESPONSE TRAITS dataset from .csv file
+data=read.csv("DATA/response_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
+                  stringsAsFactors=F,check.names=FALSE)
+
+# OR:
+
+## 2.Load EFFECTS TRAITS dataset from .csv file
+data=read.csv("DATA/effects_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
+              stringsAsFactors=F,check.names=FALSE)
+
+## Drop 1st column
+data1 <- data1[,2:7]
+#_______________________________________________________________________________
 ## Check data
 head(data)
 
