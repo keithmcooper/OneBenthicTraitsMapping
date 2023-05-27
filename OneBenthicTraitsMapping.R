@@ -7,7 +7,7 @@
 # sustainable development. Ecological Applications (in prep).
 
 ## Set working directory
-setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/')
+setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/')
 
 #_______________________________________________________________________________
 ## Load packages
