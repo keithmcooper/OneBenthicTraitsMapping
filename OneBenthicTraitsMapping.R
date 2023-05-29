@@ -107,7 +107,7 @@ setwd("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicTraitsMapping")
 
 ## 1.Load RESPONSE TRAITS dataset from .csv file
 data=read.csv("DATA/response_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
-                  stringsAsFactors=F,check.names=FALSE)
+              stringsAsFactors=F,check.names=FALSE)
 
 # OR:
 
@@ -1423,10 +1423,10 @@ setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/')
 
 ## Load libraries
 library(raster)
-
+library(leaflet)
 ## Load raster data layers
 bathy <- raster("DATA/Rasters/Final/bathy3.tif")
-pr = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/ResponseTraitMaxClass.tif') #Anna's version
+pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/ResponseTraitMaxClass_Apr22.tif') #Anna's version
 #pr = raster('DATA/EffectsTraitsCluster.tif')
 
 ## Exaggerate the vertical scale (bathy not very clear unless you do this)
@@ -1446,7 +1446,7 @@ colours <- c('#4575b4', '#00E600', '#91bfdb', '#e0f3f8','#fee090','#fc8d59')# RE
 
 ## RESPONSE CONFIDENCE PLOT ##
 library(RColorBrewer)
-prc = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/ResponseTraitConfidence.tif') #Anna's version
+prc = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/ResponseTraitConfidence_Apr22.tif') #Anna's version
 
 cols <- colorBin(palette = brewer.pal(n = 4, name = "Oranges"), bins = c(0,0.10,0.25,0.6), domain = c(0,0.10,0.25,0.6),na.color = "transparent")
 
@@ -1462,7 +1462,7 @@ cuts=c(0,0.2,0.4,0.6,0.8,1.0) #set breaks,1.0
 
 ## SIDE BY SIDE PLOTS WITH a) and b) but on PLOT
 
-png('OUTPUTS/RESPONSE_TRAITS/traits_response_modelplot_confidenceplot.png',width = 30,height = 13.3,units = "cm", res = 600,pointsize = 12)
+png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_2.png',width = 32,height = 15.5,units = "cm", res = 800,pointsize = 14)
 # 2. Create the plot
 line = 1
 cex = 1.5
@@ -1470,13 +1470,18 @@ side = 3
 adj=-0.15
 
 par(mfrow=1:2)
-par(mar= c(2, 3.1, 2, 4)+ 0.2)
-plot(pr, col=colours,add=F,alpha=1,axes=T,box=T,legend=F)
-legend(x = 8, y = 53.2, legend = c("2","1","3","4","5","6"), fill = c('#00E600','#4575b4','#91bfdb','#e0f3f8','#fee090','#fc8d59'),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
+#par(mar= c(2, 3.1, 2, 4)+ 0.2)
+# margins are in the order: bottom, left, top, right
+par(mar= c(4, 4, 2, 1)+ 0.2)
+plot(pr, col=colours,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="Latitude")
+#legend(x = 8, y = 53.2, legend = c("2","1","3","4","5","6"), fill = c('#00E600','#4575b4','#91bfdb','#e0f3f8','#fee090','#fc8d59'),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
+legend(x = 7.7, y = 53.7, legend = c("2","1","3","4","5","6"), fill = c('#00E600','#4575b4','#91bfdb','#e0f3f8','#fee090','#fc8d59'),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
+
 #
 mtext("a)", side=side, line=line, cex=cex, adj=adj)
-plot(prc,breaks=cuts,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F)
-legend(x = 4.8, y = 52.5, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
+plot(prc,breaks=cuts,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="")
+#legend(x = 4.8, y = 52.5, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
+legend(x = 4.15, y = 52.9, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
 
 mtext("b)", side=side, line=line, cex=cex, adj=adj)
 dev.off()
@@ -1495,7 +1500,8 @@ library(raster)
 
 ## Load raster data layers
 bathy <- raster("DATA/Rasters/Final/bathy3.tif")
-pr = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/EffectsTraitMaxClass.tif') #Anna's version
+#pr = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/EffectsTraitMaxClass.tif') #Anna's version
+pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/EffectsTraitMaxClass_Apr22.tif') #Anna's version
 #pr = raster('DATA/EffectsTraitsCluster.tif')
 
 ## Exaggerate the vertical scale (bathy not very clear unless you do this)
@@ -1515,8 +1521,8 @@ colours <- c('#5ab4ac', '#d8b365', '#c7eae5', '#8c510a','#f6e8c3', '#FF0000')# E
 
 ## EFFECTS CONFIDENCE ##
 library(RColorBrewer)
-prc = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/EffectsTraitConfidence.tif') #Anna's version
-
+#prc = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/EffectsTraitConfidence.tif') #Anna's version
+prc = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/EffectsTraitConfidence_Apr22.tif') #Anna's version
 #cols <- colorBin(palette = brewer.pal(n = 4, name = "Oranges"), bins = c(0,0.10,0.25,0.6), domain = c(0,0.10,0.25,0.6),na.color = "transparent")
 
 plot(hill,col=grey(1:100/100),legend=FALSE)#,axes=F,box=FALSE
@@ -1529,7 +1535,9 @@ cuts=c(0,0.2,0.4,0.6,0.8,1.0) #set breaks,1.0
 
 ## SIDE BY SIDE PLOTS WITH a) and b) but on PLOT
 
-png('OUTPUTS/EFFECTS_TRAITS/traits_effects_modelplot_confidenceplot.png',width = 30,height = 13.5,units = "cm", res = 600,pointsize = 12)
+#png('OUTPUTS/EFFECTS_TRAITS/traits_effects_modelplot_confidenceplot.png',width = 30,height = 13.5,units = "cm", res = 600,pointsize = 12)
+png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_4.png',width = 35,height = 16,units = "cm", res = 800,pointsize = 14)
+
 # 2. Create the plot
 line = 1
 cex = 1.5
