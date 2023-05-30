@@ -7,7 +7,7 @@
 # sustainable development. Ecological Applications (in prep).
 
 ## Set working directory
-setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/')
+#setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/')
 
 #_______________________________________________________________________________
 ## Load packages
@@ -1479,7 +1479,7 @@ legend(x = 7.9, y = 52.8, legend = c("2","1","3","4","5","6"), fill = c('#00E600
 
 #
 mtext("a)", side=side, line=line, cex=cex, adj=adj)
-plot(prc,breaks=cuts,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="")
+plot(prc,breaks=cuts,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="Latitude")
 #legend(x = 4.8, y = 52.5, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1.2, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
 legend(x = 5.1, y = 52.1, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
 
