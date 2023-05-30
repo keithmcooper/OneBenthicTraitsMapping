@@ -1462,7 +1462,7 @@ cuts=c(0,0.2,0.4,0.6,0.8,1.0) #set breaks,1.0
 
 ## SIDE BY SIDE PLOTS WITH a) and b) but on PLOT
 
-png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_2.png',width = 32,height = 15.80, units = "cm", res = 800,pointsize = 14)
+png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_2.jpg',width = 32,height = 15.80, units = "cm", res = 800,pointsize = 14)
 # 2. Create the plot
 line = 1
 cex = 1.5
@@ -1536,7 +1536,7 @@ cuts=c(0,0.2,0.4,0.6,0.8,1.0) #set breaks,1.0
 ## SIDE BY SIDE PLOTS WITH a) and b) but on PLOT
 
 #png('OUTPUTS/EFFECTS_TRAITS/traits_effects_modelplot_confidenceplot.png',width = 30,height = 13.5,units = "cm", res = 600,pointsize = 12)
-png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_4.png',width = 32,height = 15.80,units = "cm", res = 800,pointsize = 14)
+png('C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_4.jpg',width = 32,height = 15.80,units = "cm", res = 800,pointsize = 14)
 
 # 2. Create the plot
 line = 1
@@ -1546,10 +1546,10 @@ adj=-0.15
 
 par(mfrow=1:2)
 par(mar= c(4, 4, 2, 1)+ 0.2)
-plot(pr, col=colours,add=F,alpha=1,axes=T,box=T,legend=F)#
+plot(pr, col=colours,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="Latitude")#
 legend(x = 7.9, y = 52.8, legend = c("6","3","1","2","4","5"), fill = c('#FF0000', '#c7eae5','#5ab4ac', '#d8b365', '#8c510a', '#f6e8c3'),cex = 1, inset = 0.9,bty = "n") # bty used to turn off legend border) EFFECTS
 mtext("a)", side=side, line=line, cex=cex, adj=adj)
-plot(prc,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F)
+plot(prc,col=my.palette,add=F,alpha=1,axes=T,box=T,legend=F,xlab="Longitude", ylab="Latitude")
 legend(x = 5.1, y = 52.1, legend = c("0.0 - 0.2","0.2 - 0.4","0.4 - 0.6","0.6 - 0.8","0.8 - 1.0"), fill = c("#FEEDDE", "#FDBE85", "#FD8D3C", "#E6550D", "#A63603"),cex = 1, inset = 0.9,bty = "n") # bty used to turn off legend border) RESPONSE
 mtext("b)", side=side, line=line, cex=cex, adj=adj)
 
