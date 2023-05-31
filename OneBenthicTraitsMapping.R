@@ -268,8 +268,8 @@ hc <- hclust(d1)
 
 ## Save plot of dendrogram as an image file(png or tiff)
 # CHOOSE
-#png("OUTPUTS/RESPONSE_TRAITS/rt_dendro.png", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # RESPONSE TRAITS OR
-png("OUTPUTS/EFFECTS_TRAITS/et_dendro.png", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # EFFECTS TRAITS
+#png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_1.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # RESPONSE TRAITS OR
+png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_3.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # EFFECTS TRAITS
 
 ## Convert hclust into a dendrogram and plot
 hcd <- as.dendrogram(hc)
