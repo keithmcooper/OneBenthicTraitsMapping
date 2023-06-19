@@ -47,12 +47,14 @@ s.samplelat,
 s.samplelong,
 wtr.traits_modality,
 SUM(wtr.fuzzyscore * sqrt(sqrt(ts.abund))) as traitscore,
-SUM  (sqrt(sqrt(ts.abund))) as total_trans_abund
+SUM  (sqrt(sqrt(ts.abund))) as total_trans_abund,
+g.gearcode
 
 FROM samples.sample as s 
 INNER JOIN faunal_data.taxasample as ts ON s.samplecode= ts.sample_samplecode 
 INNER JOIN faunal_data.worrms as w ON w.aphiaid = ts.worrms_aphiaid 
 INNER JOIN faunal_data.worrmstraits as wtr ON wtr.worrms_aphiaid = w.aphiaid
+INNER JOIN gear.gear as g on s.gear_gearcode = g.gearcode
 
 WHERE (wtr.traits_trait = 'morphology               ' OR wtr.traits_trait = 'eggdevelopment           ' OR wtr.traits_trait = 'livinghabit              ' OR wtr.traits_trait = 'sedimentposition         ' OR wtr.traits_trait = 'mobility                 ')
 AND (s.gear_gearcode = 'MHN' OR s.gear_gearcode = 'DG' OR s.gear_gearcode = 'VV' OR s.gear_gearcode = 'SM' OR s.gear_gearcode = 'NIOZ' OR s.gear_gearcode = 'BC_0.1' OR s.gear_gearcode = 'C/VV'OR s.gear_gearcode = 'BC')
@@ -64,6 +66,7 @@ AND s.samplelat > 47.92938
 AND s.id <= 44362
 GROUP BY
 s.samplecode,
+g.gearcode,
 wtr.traits_modality
 ORDER by s.samplecode;")
 
@@ -77,12 +80,14 @@ s.samplelat,
 s.samplelong,
 wtr.traits_modality,
 SUM(wtr.fuzzyscore * sqrt(sqrt(ts.abund))) as traitscore,
-SUM  (sqrt(sqrt(ts.abund))) as total_trans_abund
+SUM  (sqrt(sqrt(ts.abund))) as total_trans_abund,
+g.gearcode
 
 FROM samples.sample as s 
 INNER JOIN faunal_data.taxasample as ts ON s.samplecode= ts.sample_samplecode 
 INNER JOIN faunal_data.worrms as w ON w.aphiaid = ts.worrms_aphiaid 
 INNER JOIN faunal_data.worrmstraits as wtr ON wtr.worrms_aphiaid = w.aphiaid
+INNER JOIN gear.gear as g on s.gear_gearcode = g.gearcode
 
 WHERE (wtr.traits_trait = 'maxsize                  ' OR wtr.traits_trait = 'longevity                ' OR wtr.traits_trait = 'larvaldevelopment        ' OR wtr.traits_trait = 'feedingmode              ' OR wtr.traits_trait = 'bioturbation             ')
 AND (s.gear_gearcode = 'MHN' OR s.gear_gearcode = 'DG' OR s.gear_gearcode = 'VV' OR s.gear_gearcode = 'SM' OR s.gear_gearcode = 'NIOZ' OR s.gear_gearcode = 'BC_0.1' OR s.gear_gearcode = 'C/VV'OR s.gear_gearcode = 'BC')
@@ -94,6 +99,7 @@ AND s.samplelat > 47.92938
 AND s.id <= 44362
 GROUP BY
 s.samplecode,
+g.gearcode,
 wtr.traits_modality
 ORDER by s.samplecode;")
 
