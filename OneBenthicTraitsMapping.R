@@ -131,7 +131,6 @@ data=read.csv("effects_public.csv", header=T,na.strings=c("NA", "-","?","<null>"
 #_______________________________________________________________________________
 ## Check data
 head(data)
-View(data)
 
 ## Check the number of samples
 df_uniq <- unique(data$samplecode)
@@ -283,8 +282,8 @@ hc <- hclust(d1)
 
 ## Save plot of dendrogram as an image file(png or tiff)
 # CHOOSE
-#png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_1.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # RESPONSE TRAITS OR
-png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_3.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # EFFECTS TRAITS
+png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_1.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # RESPONSE TRAITS OR
+#png("C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/OUTPUTS/FIGURE_3.jpg", width = 15, height = 13, units = "cm", res = 800,pointsize = 12) # EFFECTS TRAITS
 
 ## Convert hclust into a dendrogram and plot
 hcd <- as.dendrogram(hc)
@@ -298,16 +297,16 @@ plot(hcd, ylab = "Height",leaflab = "none")
 #plot(hcd, ylab = "Height")# with labels
 
 ## Add circle symbols below each leaf of the dendrogram. Define colours.Useful sites for colours: https://colorbrewer2.org/#type=diverging&scheme=PRGn&n=6 or 
-#col.circle=c('#00E600','#4575b4','#91bfdb','#e0f3f8','#fee090','#fc8d59') # RESPONE TRAITS https://mycolor.space/?hex=%23BAC25E&sub=1 ##F6906C
-col.circle=c('#FF0000', '#c7eae5','#5ab4ac', '#d8b365', '#8c510a', '#f6e8c3') # EFFECTS TRAITS https://mycolor.space/?hex=%23BAC25E&sub=1
+col.circle=c('#00E600','#4575b4','#91bfdb','#e0f3f8','#fee090','#fc8d59') # RESPONE TRAITS https://mycolor.space/?hex=%23BAC25E&sub=1 ##F6906C
+#col.circle=c('#FF0000', '#c7eae5','#5ab4ac', '#d8b365', '#8c510a', '#f6e8c3') # EFFECTS TRAITS https://mycolor.space/?hex=%23BAC25E&sub=1
 
 ## Add symbols
 symbols(1:6, rep(0, 6), circles=rep(1, 6), add=TRUE, inches=.08,fg=col.circle,
         bg=col.circle, xpd=TRUE)#-10
 
-## Add cluster group labels
-#axis(1,at=seq(1,6,by=1),labels=c("2","1","3","4","5","6"),pos=-5,cex.axis=0.8,lty = 0,cex.axis=1)# RESPONSE
-axis(1,at=seq(1,6,by=1),labels=c("6","3","1","2","4","5"),pos=-5,cex.axis=0.8,lty = 0,cex.axis=1)# EFFECTS
+## Add cluster group labels (check with original labels)
+axis(1,at=seq(1,6,by=1),labels=c("2","1","3","4","5","6"),pos=-5,cex.axis=0.8,lty = 0,cex.axis=1)# RESPONSE
+#axis(1,at=seq(1,6,by=1),labels=c("6","3","1","2","4","5"),pos=-5,cex.axis=0.8,lty = 0,cex.axis=1)# EFFECTS
 
 dev.off()
 #_______________________________________________________________________________
@@ -1165,6 +1164,8 @@ FaunalCluster=samclus[,c(1,3,2,4)]
 ## Change names of cols
 colnames(FaunalCluster)=c("Sample","lon","lat","cluster")
 head(FaunalCluster)
+
+## Add in gear type info
 
 write.csv(FaunalCluster, file = 'C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/OUTPUTS/RESPONSE_TRAITS/FaunalClusterRT.csv')# RESPONSE TRAITS
 
