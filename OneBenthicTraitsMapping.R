@@ -1,10 +1,7 @@
 ################################################################################
-####          CREATION OF RESPONSE/EFFECTS TRAIT RASTER LAYERS              ####
+####      Mapping marine benthic biological traits to facilitate future     ####
+####          sustainable development (Ecological Applications)             ####
 ################################################################################
-
-## This script relates to the work in Bolam, S.G., Cooper, K.M., Downie, A-L.,
-# 2023. Mapping marine benthic biological traits to facilitate future
-# sustainable development. Ecological Applications (in prep).
 
 ## Set working directory
 #setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/')
@@ -42,6 +39,7 @@ pool <- dbPool(drv = dbDriver(dw$driver),
 ## 1.SQL select query RESPONSE TRAITS
 data = dbGetQuery(pool,
                   "SELECT
+ss.survey_surveyname as surveyname,
 s.samplecode,
 s.samplelat,
 s.samplelong,
@@ -55,6 +53,8 @@ INNER JOIN faunal_data.taxasample as ts ON s.samplecode= ts.sample_samplecode
 INNER JOIN faunal_data.worrms as w ON w.aphiaid = ts.worrms_aphiaid 
 INNER JOIN faunal_data.worrmstraits as wtr ON wtr.worrms_aphiaid = w.aphiaid
 INNER JOIN gear.gear as g on s.gear_gearcode = g.gearcode
+INNER JOIN associations.surveysample as ss on s.samplecode = ss.sample_samplecode
+INNER JOIN associations.survey as su on su.surveyname = ss.survey_surveyname
 
 WHERE (wtr.traits_trait = 'morphology               ' OR wtr.traits_trait = 'eggdevelopment           ' OR wtr.traits_trait = 'livinghabit              ' OR wtr.traits_trait = 'sedimentposition         ' OR wtr.traits_trait = 'mobility                 ')
 AND (s.gear_gearcode = 'MHN' OR s.gear_gearcode = 'DG' OR s.gear_gearcode = 'VV' OR s.gear_gearcode = 'SM' OR s.gear_gearcode = 'NIOZ' OR s.gear_gearcode = 'BC_0.1' OR s.gear_gearcode = 'C/VV'OR s.gear_gearcode = 'BC')
@@ -64,7 +64,9 @@ AND w.include = TRUE
 AND w.include_traits = TRUE
 AND s.samplelat > 47.92938
 AND s.id <= 44362
+
 GROUP BY
+ss.survey_surveyname,
 s.samplecode,
 g.gearcode,
 wtr.traits_modality
@@ -75,6 +77,7 @@ ORDER by s.samplecode;")
 ##2. SQL select query EFFECTS TRAITS
 data = dbGetQuery(pool,
                   "SELECT
+ss.survey_surveyname as surveyname,
 s.samplecode,
 s.samplelat,
 s.samplelong,
@@ -88,6 +91,8 @@ INNER JOIN faunal_data.taxasample as ts ON s.samplecode= ts.sample_samplecode
 INNER JOIN faunal_data.worrms as w ON w.aphiaid = ts.worrms_aphiaid 
 INNER JOIN faunal_data.worrmstraits as wtr ON wtr.worrms_aphiaid = w.aphiaid
 INNER JOIN gear.gear as g on s.gear_gearcode = g.gearcode
+INNER JOIN associations.surveysample as ss on s.samplecode = ss.sample_samplecode
+INNER JOIN associations.survey as su on su.surveyname = ss.survey_surveyname
 
 WHERE (wtr.traits_trait = 'maxsize                  ' OR wtr.traits_trait = 'longevity                ' OR wtr.traits_trait = 'larvaldevelopment        ' OR wtr.traits_trait = 'feedingmode              ' OR wtr.traits_trait = 'bioturbation             ')
 AND (s.gear_gearcode = 'MHN' OR s.gear_gearcode = 'DG' OR s.gear_gearcode = 'VV' OR s.gear_gearcode = 'SM' OR s.gear_gearcode = 'NIOZ' OR s.gear_gearcode = 'BC_0.1' OR s.gear_gearcode = 'C/VV'OR s.gear_gearcode = 'BC')
@@ -97,7 +102,9 @@ AND w.include = TRUE
 AND w.include_traits = TRUE
 AND s.samplelat > 47.92938
 AND s.id <= 44362
+
 GROUP BY
+ss.survey_surveyname,
 s.samplecode,
 g.gearcode,
 wtr.traits_modality
@@ -107,35 +114,37 @@ ORDER by s.samplecode;")
 #### RETRIEVE DATA FROM .csv files (see https://doi.org/10.14466/CefasDataHub.137) #### 
 
 ## Set working directory
-setwd("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicTraitsMapping")
+setwd("C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicTraitsMapping\\DATA\\FINAL_DOI")
 
 # CHOOSE EITHER:
 
 ## 1.Load RESPONSE TRAITS dataset from .csv file
-data=read.csv("DATA/response_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
+data=read.csv("response_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
               stringsAsFactors=F,check.names=FALSE)
 
 # OR:
 
 ## 2.Load EFFECTS TRAITS dataset from .csv file
-data=read.csv("DATA/effects_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
+data=read.csv("effects_public.csv", header=T,na.strings=c("NA", "-","?","<null>"),
               stringsAsFactors=F,check.names=FALSE)
 
-## Drop 1st column
-data1 <- data1[,2:7]
 #_______________________________________________________________________________
 ## Check data
 head(data)
+View(data)
 
 ## Check the number of samples
 df_uniq <- unique(data$samplecode)
 length(df_uniq) #31838
 
+## Create a df for samplecodes and gear - this will be used later for modelling
+sample_gear <- data[,c(2,8)]
+
 ## Calculate traitscore as a percentage of total transformed abundance
 data$tperc <- (data$traitscore/data$total_trans_abund)*100
 
 # Drop unwanted columns
-data <- data[,c(1,2,3,4,7)]
+data <- data[,c(2,3,4,5,9)]
 colnames(data)[5] <- "traitscore"
 
 #_______________________________________________________________________________
