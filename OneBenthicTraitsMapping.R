@@ -8,8 +8,8 @@
 ################################################################################
 
 # This script is split into two parts. Part A deals with the generation of trait 
-# cluster groups. Part B deals with the spatial modelling of trait cluster 
-# groups.
+# cluster groups. Part B deals with the spatial modelling (random forest) of 
+# trait cluster groups.
 
 ################################################################################
 ####                              PART A                                   #####
@@ -162,7 +162,7 @@ colnames(data)[5] <- "traitscore"
 #_______________________________________________________________________________
 #### PREPARE TRAITS DATA FOR CLUSTERING ####
 
-## Examine col names of retreived data
+## Examine col names of retrieved data
 head(data)# 1.samplecode, 2. samplelat, 3. samplelong, 4. traits_modality, 5. traitscore
 
 ## Load library
