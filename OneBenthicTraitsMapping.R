@@ -9,7 +9,9 @@
 
 # This script is split into two parts. Part A deals with the generation of trait 
 # cluster groups. Part B deals with the spatial modelling (random forest) of 
-# trait cluster groups.
+# trait cluster groups. Data used in the script is sourced from the OneBenthic
+# database using sql queries. For users without access to this database, data
+# can be sourced from https://doi.org/10.14466/CefasDataHub.137
 
 ################################################################################
 ####                              PART A                                   #####
