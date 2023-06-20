@@ -1,12 +1,24 @@
 ################################################################################
-####      Mapping marine benthic biological traits to facilitate future     ####
-####          sustainable development (Ecological Applications)             ####
+################################################################################
+####                                                                        ####
+####      MAPPING MARINE BENTHIC BIOLOGICAL TRAITS TO FACILITATE FUTURE     ####
+####      FUTURE SUSTAINABLE DEVELOPMENT (ECOLOGICAL APPLICATIONS)          ####
+####                                                                        ####
+################################################################################
+################################################################################
+
+# This script is split into two parts. Part A deals with the generation of trait 
+# cluster groups. Part B deals with the spatial modelling of trait cluster 
+# groups.
+
+################################################################################
+####                              PART A                                   #####
+####                          Trait Clustering                             #####
 ################################################################################
 
 ## Set working directory
 #setwd('C:/Users/kmc00/OneDrive - CEFAS/R_PROJECTS/OneBenthicTraitsMapping/')
 
-#_______________________________________________________________________________
 ## Load packages
 library(ggplot2)
 library(rgdal)
@@ -139,6 +151,7 @@ length(df_uniq) #31838
 ## Create a df for sample codes and gear - this will be used later for modelling
 sample_gear <- unique(data[,c(2,8)])
 colnames(sample_gear) <- c("sample","gear")
+
 ## Calculate traitscore as a percentage of total transformed abundance
 data$tperc <- (data$traitscore/data$total_trans_abund)*100
 
@@ -893,8 +906,8 @@ chara_traits %>%
   gtsave(
     "OUTPUTS/EFFECTS_TRAITS/et_characterising_traits_table.png")
 #_______________________________________________________________________________
-#### PCA ####
-# see https://cran.r-project.org/web/packages/factoextra/readme/README.html
+#### PCA (not used in paper) ####
+# see https://cran.r-project.org/web/packages/factoextra/readme/README.html.
 
 library(FactoMineR)
 library(factoextra)
@@ -1006,7 +1019,7 @@ myplot
 ggsave(myplot, file="OUTPUTS/RESPONSE_TRAITS/ResponseTraitsPCA_no_labs.png" , width=10, height=8)# RESPONSE TRAITS
 ggsave(myplot, file="OUTPUTS/EFFECTS_TRAITS/EffectsTraitsPCA_no_labs.png" , width=10, height=8)# EFFECTS TRAITS
 #_______________________________________________________________________________
-#### PCA CONTRIBUTIONS TABLE ####
+#### PCA CONTRIBUTIONS TABLE (not used in paper)####
 
 ## Start with PCA coordinates
 head(var$coord)
@@ -1192,8 +1205,9 @@ dim(dataformodelling)# 16682
 
 #_______________________________________________________________________________
 ################################################################################
-####                        Random Forest Modelling                       ######
-######                  18/06/2023 - Anna Downie                          ######
+####                             PART B                                    #####
+####                        Random Forest Modelling                        #####
+####                      18/06/2023 - Anna Downie                         #####
 ################################################################################
 
 ##### 1. Set up directories, libraries and colour palettes  ####################
