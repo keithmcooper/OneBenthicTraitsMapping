@@ -136,9 +136,9 @@ head(data)
 df_uniq <- unique(data$samplecode)
 length(df_uniq) #31838
 
-## Create a df for samplecodes and gear - this will be used later for modelling
-sample_gear <- data[,c(2,8)]
-
+## Create a df for sample codes and gear - this will be used later for modelling
+sample_gear <- unique(data[,c(2,8)])
+colnames(sample_gear) <- c("sample","gear")
 ## Calculate traitscore as a percentage of total transformed abundance
 data$tperc <- (data$traitscore/data$total_trans_abund)*100
 
@@ -1162,22 +1162,1541 @@ FaunalCluster=samclus[,c(1,3,2,4)]
 #View(FaunalCluster)
 
 ## Change names of cols
-colnames(FaunalCluster)=c("Sample","lon","lat","cluster")
+colnames(FaunalCluster)=c("sample","lon","lat","cluster")
 head(FaunalCluster)
 
 ## Add in gear type info
+head(sample_gear)
 
-write.csv(FaunalCluster, file = 'C:/Users/KMC00/OneDrive - CEFAS/R_PROJECTS/TraitsMapping/OUTPUTS/RESPONSE_TRAITS/FaunalClusterRT.csv')# RESPONSE TRAITS
+## Run this for the response data
+resp <- merge(FaunalCluster,sample_gear,by="sample")
+resp <- resp[,c(1,2,3,5,4)]## Change order of columns
+colnames(resp)[5] <- "resptrait"
+head(resp)
+
+## Run this for the effects data
+eff <- merge(FaunalCluster,sample_gear,by="sample")
+eff <- eff[,c(1,2,3,5,4)]## Change order of columns
+colnames(eff)[5] <- "efftrait"
+head(eff)
+
+## Merge cluster results for response and effects groups
+dataformodelling <- merge(resp,eff,by=c("sample","lon","lat","gear"))
+head(dataformodelling)
+
+## save cluster results to csv
+write.csv(dataformodelling, file = 'C:\\Users\\KMC00\\OneDrive - CEFAS\\R_PROJECTS\\OneBenthicTraitsMapping\\DATA\\dataformodelling.csv')
 
 ## Number of samples
-dim(FaunalCluster)# 18336    4
+dim(dataformodelling)# 16682
 
-## Take only the coordinates
-FaunalCluster2 <- FaunalCluster[,2:3]
-head(FaunalCluster2)
 #_______________________________________________________________________________
-##INSERT ANNA'S CODE HERE##
+################################################################################
+####                        Random Forest Modelling                       ######
+######                  18/06/2023 - Anna Downie                          ######
+################################################################################
 
+##### 1. Set up directories, libraries and colour palettes  ####################
+
+## Load required libraries
+require(dplyr)
+require(tidyr)
+require(ggplot2)
+require(caret)
+require(randomForest)
+require(pdp)
+require(data.table)
+require(tmap)
+require(sf)
+require(raster)
+require(ggcorrplot)
+require(ggdendro)
+require(ggpubr)
+require(gridExtra)
+require(kableExtra)
+require(vtable)
+require(caTools)
+require(patchwork)
+
+
+## Set working directory
+wkd <- setwd('C:/Users/AD06/Documents/OneBenthic')
+
+## Set auxiliary GIS data file paths (e.g. shoreline)
+shoreline <- 'C:/Users/AD06/Documents/Coastlines/Europe/EuropeESRI_high.shp'
+
+## Source algorithm for calculating the Variance Inflation Factor VIF
+## The algorithm used in original code is not publicly available but can 
+## be replaced here with any algorithm that calculates VIF - save as corvif
+source("corvif.R") 
+
+
+## Colour palette for plots
+cpl <- c('#d4ebe7','#cbbcbb','#f5f1f1','#172957','#66afad')
+names(cpl) <- c('lt','dbe','lbe','dbl','dt')
+
+## Colour palettes for trait classes
+# Colours for Response Traits
+classpal.r <- c("#4575b4","#00E600","#91bfdb","#e0f3f8","#fee090", "#fc8d59")
+# Colours for Effects Traits
+classpal.e <- c("#5ab4ac","#d8b365","#c7eae5","#8c510a","#f6e8c3","#FF0000") 
+
+
+##### 2. Settings for tables and figures   #####################################
+
+# Table settings for histograms
+t1 <- ttheme_minimal(core=list(bg_params = list(fill = '#f5f1f1', col='#172957'),
+                               fg_params=list(fontface=1)),
+                     colhead=list(fg_params=list(col="#172957", fontface=4L),
+                                  bg_params = list(fill = '#f5f1f1', col='#172957')),
+                     rowhead=list(fg_params=list(col="#172957", fontface=2L),
+                                  bg_params = list(fill = '#f5f1f1', col='#172957')),
+                     padding = unit(c(5, 5), "mm"))
+
+# Settings for ggplots
+OneB_theme <-
+  ggplot2::theme(axis.title.y = element_text(vjust=4,  size=12,colour="black"),
+                 axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+                 axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+                 axis.title.x  = element_text(vjust=-4, size=12,colour="black"),
+                 strip.background = element_rect(fill=cpl['lbe']),
+                 strip.text.x = element_text(size=12, face="bold"),
+                 panel.grid.major = element_line(colour=cpl['lbe']),
+                 panel.grid.minor = element_line(colour=cpl['lbe']),
+                 panel.background = element_rect(fill="white"),
+                 plot.margin = ggplot2::margin(0.5, 0.5, 1, 0.5, "cm"))
+
+
+##### 3. Prepare data   ########################################################
+
+
+### Read in shoreline for plotting ----
+countries <- st_read(shoreline)
+
+### Read in and check response data ----
+
+## Read in point data on traits (including response and effects traits)
+## objects is named resptrait as it is the model response variable
+resptrait <- as.data.table(read.csv('DATA/ADDITIONAL/dataformodelling.csv'))
+rtr_sf <- st_as_sf(resptrait,coords=c('lon','lat'),crs=4326,remove = FALSE)
+## Set bounding box for plotting
+extbb <- st_bbox(rtr_sf)
+
+## Plot points on map
+tm_shape(countries,bbox = extbb) +
+  tm_grid(lines = FALSE,n.x = 4, n.y = 3) +
+  tm_polygons() +
+  tm_shape(rtr_sf) +
+  tm_symbols(col="steelblue",size = 0.2)
+
+## List of sampling gears in data
+unique(rtr_sf$gear)
+
+# Keeping all 0.1m2 gears (Mini Hamon,Smith-Macintyre, Day and vanveen grabs, 
+# nioz box core) and box cores with unknown dimensions, with the expectation 
+# they are 0.1m2 
+
+## Combine gears to common types for inclusion as model predictor variable
+# Group
+rtr_sf <- rtr_sf %>%
+  mutate(GearType=case_when(gear %in% c("DG","VV","SM") ~ 'Cup',
+                            gear =="MHN" ~'Scoop',
+                            gear %in% c("BC_0.1","BC","NIOZ") ~ 'Box Core',
+                            gear %in% c("C/VV") ~ 'Core/Cup'))
+
+# Extract and edit columns needed for model response variable data matrix 
+# (including both trait categories) 
+resp_sf <- rtr_sf %>%
+  dplyr::select(c("sample","lon","lat","GearType","resptrait","efftrait")) %>%
+  dplyr::rename(SampleCode=sample) %>% # rename sample column to 'SampleCode' 
+  mutate_if(is.integer,as.character) # trait classes from integer to character
+# Print data summary
+summary(resp_sf)
+
+## Plot points by gear type
+tm_shape(countries,bbox = extbb) +
+  tm_grid(lines = FALSE,n.x = 4, n.y = 3) +
+  tm_polygons() +
+  tm_shape(resp_sf) +
+  tm_symbols(col="GearType",size = 0.2) +
+  tm_layout(legend.position=c("right", "bottom"),
+            legend.bg.color = 'white',
+            legend.bg.alpha = 0.75)
+
+
+### Read in environmetal rasters ----
+
+## List files
+f <- list.files(path='DATA/RASTERS', pattern='.tif$', full.names=T)
+## Load rasters into a raster stack
+s1 <- stack(f,RAT=F)
+## View raster stack to check layers
+s1
+## Plot raster stack to check layers
+# define map extent
+extbb <- tmaptools::bb(resp_sf,ext = 1.1)
+## Plot layers
+tm_shape(s1) + 
+  tm_raster(style=rep("kmeans",nlayers(s1)),
+            palette="RdYlGn",
+            
+  ) +
+  tm_facets(free.scales = TRUE,ncol = 4) +
+  tm_layout(legend.position = c("right", "bottom"),
+            panel.show = FALSE,)
+
+
+# Extract raster data as a dataframe
+s1d <- raster::as.data.frame(s1)
+s1d <- s1d[complete.cases(s1d),]
+
+
+### Extract raster values to points ----
+
+## Extract values
+env <- raster::extract(s1,resp_sf)
+# Check data summary
+summary(env)
+
+## Define labels to use for environmental variables
+envlab <- c('Depth','Chl-a','Current velocity','Iron','Light','LS-Factor','Nitrate','Oxygen','Phosphate','Phytoplankton','Gravel','Mud','Productivity','Rel. Slope Pos.','Salinity','Silicate','Suspended Matter','Temperature','Wave velocity')
+names(envlab) <- colnames(env)
+# Add gear type to labels
+envlab['GearType'] <- 'Gear type'
+
+
+### Combine species and environmental data ----
+
+# Names of response columns
+rn <- resp_sf %>%
+  st_drop_geometry() %>%
+  names
+# Names of potential predictor columns
+re <- env %>%
+  colnames()
+# Combine and reorder
+pshpt <- resp_sf %>%
+  cbind(env) %>%
+  dplyr::select(rn[-c(2:4)],rn[2:3],all_of(re),rn[4])     
+
+## Traits abd gear as factor
+pshpt <- pshpt %>% 
+  mutate(across(c(resptrait,efftrait,GearType),factor))
+
+# Keep complete cases
+pshpt <- pshpt %>%
+  drop_na()
+# Check summary
+summary(pshpt)
+
+
+# Predictor variable names including latitude and longitude
+lstenv <- ncol(pshpt)-1
+fstenv <- lstenv-(length(re)+2)
+prnames <- names(pshpt[,fstenv:lstenv])
+prnames <- prnames[!prnames=='geometry'] # remove geometry column name
+
+# Define factor variables
+facvars <- "GearType"
+# Define numeric variables
+numvars <- prnames[prnames != facvars]
+
+# Response variable names
+rspnames <- c("resptrait","efftrait")
+
+# Define the number of class levels
+numclass.r <- nlevels(pshpt$resptrait)
+numclass.e <- nlevels(pshpt$efftrait)
+
+
+### Data exploration ----
+
+## Table of summary statistics
+vtable::sumtable(pshpt,simple.kable = TRUE)
+
+## Covariance of environmental variables
+
+# Correlation matrix
+corr <- pshpt %>%
+  st_drop_geometry() %>%
+  dplyr::select(all_of(numvars)) %>%
+  cor
+# Edit variable names
+colnames(corr) <- envlab[colnames(corr)]
+colnames(corr)[1:2] <- c('Latitude','Longitude')
+rownames(corr) <- envlab[rownames(corr)]
+rownames(corr)[1:2] <- c('Latitude','Longitude')
+# Plot correlation matrix
+corplot <- ggcorrplot(corr, method='circle',type = 'upper',hc.order = TRUE)
+corplot
+
+
+# Correlation visualised as a dedrogram
+# Cluster by correlation 
+sim.by.hclust <- hclust(dist(corr))
+names(sim.by.hclust$labels)[1:2] <- c("samplelat","samplelong")
+# Plot dendrogram
+cordend <-  ggdendrogram(sim.by.hclust,rotate = TRUE,theme_dendro = TRUE) +
+  geom_hline(yintercept = 0.7,linetype=2)
+cordend
+
+
+### Set up objects to save model and validation outputs into ----
+
+# Input response data
+RD <- NULL
+# An  object for appending all variable importances to
+VIs <- NULL
+# An object for appending model performance  table data
+PSas <- NULL
+PScs <- NULL
+# Observed vs predicted values across test runs
+OvsPs <- NULL
+# Partial Response Curve data
+PRCs <- NULL
+
+# Tables for collecting all model performance statistics
+# Class specific validation statistics
+forest.class.res <- data.frame(Name=character(0),Run=character(0),Class=character(0),ClassN=numeric(0),
+                               Sens=numeric(0),Spec=numeric(0),BA=numeric(0),
+                               stringsAsFactors =F)
+
+# Validation statistics for whole model
+forest.class.res.all <- data.frame(Name=character(0),
+                                   Run=character(0),
+                                   N=numeric(0),
+                                   Acc=numeric(0),
+                                   NIR=numeric(0),
+                                   P=numeric(0),
+                                   Kappa=numeric(0),
+                                   Q=numeric(0),
+                                   A=numeric(0),
+                                   stringsAsFactors =F)
+
+# Combined validations statistic
+forest.res.mat.all <- data.frame(Name=character(0),ModRun = numeric(),Comb=character(),
+                                 Pred=character(),Obs=character(),Vals=numeric(),
+                                 stringsAsFactors = FALSE)
+
+
+
+
+##### 4. Response traits model   ########################################################
+
+###  Data prep ----
+
+## Define response variable as response traits
+tax = 'resptrait'
+
+## Select all environmental variables to include as potential predictors and
+## save into a temporary dataset
+cols <- c(tax,prnames)
+nrow(pshpt)
+sdata <- pshpt %>%
+  st_drop_geometry() %>%
+  dplyr::select(all_of(cols)) %>%
+  dplyr::rename(resp=1) %>% # Rename the response column
+  drop_na() # Include only complete cases
+# Data summary
+summary(sdata)
+#levels(sdata$resp)[which.min(summary(sdata$resp))]
+
+## Add data to model data collator
+RD <- RD %>%
+  rbind(data.table(Tax=tax,Metric='Class',value=sdata[,'resp']))
+
+
+## Histogram of input data
+mxy <- max(summary(sdata$resp)) # Find max for y
+indat <- ggplot(sdata,(aes(x=resp))) +
+  geom_bar(fill='#66afad', col='#172957') +
+  geom_text(inherit.aes=FALSE,aes(label = paste('N =',nrow(sdata)), x = 1,
+                                  y = mxy),position = position_nudge(y=mxy/10),size=5,hjust=0) +
+  xlab('Class') +
+  ylab('Number of samples') +
+  theme(axis.title.y = element_text(vjust=0.5,size=12,colour="black"),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x  = element_text(vjust=-1, size=12,colour="black"),
+        plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+        strip.background = element_rect(fill="#f5f1f1"),
+        strip.text.x = element_text(size=12, face="bold"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"),
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA),
+        legend.text = element_text(size=12,colour="black"),
+        plot.margin = ggplot2::margin(3,3,8,3))
+indat
+
+
+## Plot model data on a map
+rtr_sf <- st_as_sf(sdata[,1:3],coords=c('lon','lat'),crs=CRS('+proj=longlat +datum=WGS84 +no_defs'))
+
+asg.ab <- tm_shape(countries,bbox = extbb) +
+  tm_grid(lines = FALSE,n.x = 4, n.y = 3) +
+  tm_layout(title = "Response trait group" ,
+            legend.position = c("right", "bottom"),
+            legend.title.fontface = 3,
+            legend.bg.color = 'white',
+            legend.width = 0.5) +
+  tm_polygons() +
+  tm_shape(rtr_sf) +
+  tm_bubbles(col='resp',
+             palette = classpal.r,
+             size=0.2,
+             alpha=0.5,
+             border.col = "black", border.alpha = .5, 
+             scale = 1.1,
+             title.col = "Group")
+
+asg.ab
+
+### Preliminary full model with all potential predictors ----
+
+## Build model with all variables
+prelRF <- randomForest(resp~.,
+                       data=sdata, 
+                       ntrees=1000,
+                       replace=FALSE,
+                       importance=TRUE,
+                       nPerm=5)
+prelRF
+
+## Extract variabe importance
+full.importance <- data.table(Predictor=rownames(prelRF$importance),prelRF$importance)
+full.importance <- full.importance[order(full.importance[,MeanDecreaseGini],decreasing=T),]
+full.importance
+
+
+## Plot Partial Dependence Curve
+
+# Objects for storing data
+plotdata <- NULL
+plotdata2 <- NULL
+predselnf <- numvars # define numeric variables
+
+# Loop through response levels and predictor variables to produce and save 
+# partial dependence curve data for each case
+require(pdp)
+
+# Extract plot values for continuous variables
+for (j in 1:length(predselnf)) {
+  
+  for (c in levels(sdata$resp)) {
+    
+    pdata <- partial(prelRF,pred.var = predselnf[j],which.class = c,
+                     plot = FALSE,train=sdata,grid.resolution=100,prob = TRUE)
+    predname <- predselnf[j]
+    print(predname)
+    temp <- data.frame(predvar=predselnf[j],class=c,x=pdata[[1]],y=pdata[[2]])
+    plotdata <- rbind(plotdata,temp)
+    
+  }
+  
+}
+
+# Round values
+plotdata.r <- plotdata %>%
+  mutate(across(y, round, 1))
+
+# Extract plot values for categorical variables
+for (j in 1:length(facvars)){
+  
+  for (c in levels(sdata$resp)) {
+    
+    pdata <- partial(prelRF,pred.var = facvars[j],which.class = c,
+                     plot = FALSE,train=sdata,grid.resolution=100,prob = TRUE)
+    predname <- facvars[j]
+    temp <- data.frame(predvar=facvars[j],class=c,x=pdata[[1]],y=pdata[[2]])
+    plotdata2 <- rbind(plotdata2,temp)
+    
+  }
+  
+}
+# Round values
+plotdata2 <- plotdata2 %>%
+  mutate(across(where(is.numeric), round, 1))
+
+
+## Create list object to store individual plots
+fullRP.list <- list()
+
+## Populate list object with plots for continuous variables
+for (i in predselnf) {
+  
+  fullRP.list[[i]] <- ggplot(plotdata[plotdata$predvar==i,],aes(x=x,y=y,col=class)) +
+    geom_smooth(size=0.8,se=FALSE,span = 0.3,show.legend = FALSE) +
+    facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+    scale_colour_manual(values = classpal.r) +
+    ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+    theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.title.x  = element_blank(),
+          plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+          strip.background = element_rect(fill="grey90"),
+          strip.text.x = element_text(size=12, face="bold"),
+          panel.grid.major = element_line(colour="grey80"),
+          panel.grid.minor = element_line(colour="grey80"),
+          panel.background = element_rect(fill="white"),
+          legend.title = element_blank(),
+          legend.key = element_rect(fill = NA),
+          legend.text = element_text(size=12,colour="black"))
+}
+
+# Add plot for gear type
+fullRP.list[['GearType']] <-  ggplot(plotdata2, aes(x=x,y=y,fill=class)) +
+  geom_bar(stat = 'identity',position = "dodge") +
+  scale_fill_manual(values = classpal.r) +
+  facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+  ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+  theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+        strip.background = element_rect(fill="grey90"),
+        strip.text.x = element_text(size=12, face="bold"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"),
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA),
+        legend.text = element_text(size=12,colour="black"))
+
+# Create plot layout
+fullRP <- grid.arrange(grobs=fullRP.list,ncol=4)
+# View plot
+fullRP
+
+
+## Select best performing uncorrelated variables to keep for final model
+
+# Correlation matrix with variables in order of full model importance
+# Variable list
+vl <- full.importance[[1]]
+# Numeriv variables only
+vl <- vl[vl %in% numvars]
+cr <- sdata %>%
+  dplyr::select(all_of(vl)) %>%
+  cor()
+
+# Remove variables correlated to a higher importance variable
+for(j in 1:length(cr[1,])){
+  if (j == 1){
+    pl <- c(names(cr[j,][1]),names( cr[j,][sqrt((cr[j,])^2)<0.8]))
+    pl1 <- pl
+  } else if (names(cr[j,])[j] %in% pl1){
+    rem <- names(cr[j,-c(1:j)][sqrt((cr[j,-c(1:j)])^2)>0.8])
+    if (length(rem) != 0L){  
+      pl <- pl[!pl %in% rem]
+    }
+  }
+  next
+}
+
+# Table of kept variables and their Variance Inflation Factors (vif)
+crval <- as.data.frame(pl)
+crval[2] <- sdata %>%
+  dplyr::select(all_of(pl)) %>%
+  corvif()
+crval
+
+
+## Same Without Coordinates
+# Variable list
+vl2 <- vl[!vl %in% c("lon", "lat")]
+# Correlation matrix
+cr <- sdata %>%
+  dplyr::select(all_of(vl2)) %>%
+  cor()
+# Remove variables correlated to a higher importance variable
+for(j in 1:length(cr[1,])){
+  if (j == 1){
+    pl <- c(names(cr[j,][1]),names( cr[j,][sqrt((cr[j,])^2)<0.8]))
+    pl1 <- pl
+  } else if (names(cr[j,])[j] %in% pl1){
+    rem <- names(cr[j,-c(1:j)][sqrt((cr[j,-c(1:j)])^2)>0.8])
+    if (length(rem) != 0L){  
+      pl <- pl[!pl %in% rem]
+    }
+  }
+  next
+}
+
+# Table of kept variables and their Variance Inflation Factors (vif)
+crval2 <- as.data.frame(pl)
+crval2[2] <- sdata %>%
+  dplyr::select(all_of(pl)) %>%
+  corvif()
+crval2
+
+### Choose the set of variables to use in model ----
+
+## Set with coordinates
+predsel <- crval[[1]]
+
+# List of all variables including response
+clms <- c(names(sdata)[1],predsel,facvars)
+
+# Data to use in model
+mdata <- sdata %>%
+  dplyr::select(all_of(clms))
+summary(mdata)
+
+## Full data random forest with selected variables
+selRF <- randomForest(resp~.,
+                      data=mdata, 
+                      ntrees=1000,
+                      replace=FALSE,
+                      importance=TRUE,
+                      nPerm=5)
+selRF
+
+
+## Choosing set without coordinates
+predsel <- crval2[[1]]
+
+# List of all variables including response
+clms <- c(names(sdata)[1],predsel,facvars)
+
+# Data to use in model
+mdata <- sdata %>%
+  dplyr::select(all_of(clms))
+summary(mdata)
+
+## Full data random forest with selected variables
+selRF <- randomForest(resp~.,
+                      data=mdata, 
+                      ntrees=1000,
+                      replace=FALSE,
+                      importance=TRUE,
+                      nPerm=5)
+selRF
+
+## Not much difference in the two models so keeping the one without coordinates
+
+sel.importance <- data.table(Predictor=rownames(selRF$importance),selRF$importance)
+sel.importance <- sel.importance[order(sel.importance[,2],decreasing=T),]
+sel.importance
+
+## Plot response curves to confirm variables are sensible
+# Plot Partial Dependence
+plotdata <- NULL
+plotdata2 <- NULL
+
+require(pdp)
+
+# Extract plot values
+for (j in 1:length(predsel)) {
+  
+  for (c in levels(sdata$resp)) {
+    
+    pdata <- partial(selRF,pred.var = predsel[j],which.class = c,
+                     plot = FALSE,train=sdata,grid.resolution=100,prob = TRUE)
+    predname <- predsel[j]
+    print(predname)
+    temp <- data.frame(predvar=predsel[j],class=c,x=pdata[[1]],y=pdata[[2]])
+    plotdata <- rbind(plotdata,temp)
+    
+  }
+  
+}
+
+plotdata.r <- plotdata %>%
+  mutate(across(y, round, 1))
+
+for (j in 1:length(facvars)){
+  
+  for (c in levels(sdata$resp)) {
+    
+    pdata <- partial(selRF,pred.var = facvars[j],which.class = c,
+                     plot = FALSE,train=sdata,grid.resolution=100,prob = TRUE)
+    predname <- facvars[j]
+    temp <- data.frame(predvar=facvars[j],class=c,x=pdata[[1]],y=pdata[[2]])
+    plotdata2 <- rbind(plotdata2,temp)
+    
+  }
+  
+}
+
+plotdata2 <- plotdata2 %>%
+  mutate(across(where(is.numeric), round, 1))
+
+# Produce plots in a list to combine later
+selRP.list <- list()
+
+for (i in predsel) {
+  
+  selRP.list[[i]] <- ggplot(plotdata[plotdata$predvar==i,],aes(x=x,y=y,col=class)) +
+    geom_smooth(size=0.8,se=FALSE,span = 0.3,show.legend = FALSE) +
+    facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+    scale_colour_manual(values = classpal.r) +
+    ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+    theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.title.x  = element_blank(),
+          plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+          strip.background = element_rect(fill="grey90"),
+          strip.text.x = element_text(size=12, face="bold"),
+          panel.grid.major = element_line(colour="grey80"),
+          panel.grid.minor = element_line(colour="grey80"),
+          panel.background = element_rect(fill="white"),
+          legend.title = element_blank(),
+          legend.key = element_rect(fill = NA),
+          legend.text = element_text(size=12,colour="black"))
+}
+
+selRP.list[['GearType']] <-  ggplot(plotdata2, aes(x=x,y=y,fill=class)) +
+  geom_bar(stat = 'identity',position = "dodge",show.legend = FALSE) +
+  scale_fill_manual(values = classpal.r) +
+  facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+  ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+  theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_text(vjust=0.5, size=12,colour="black",angle = 0),
+        axis.title.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+        strip.background = element_rect(fill="grey90"),
+        strip.text.x = element_text(size=12, face="bold"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"),
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA),
+        legend.text = element_text(size=12,colour="black"))
+
+selRP.list[['Legend']] <- as_ggplot(get_legend(ggplot(plotdata[plotdata$predvar== "bathy3",],aes(x=x,y=y,col=class)) +
+                                                 geom_smooth(size=0.8,se=FALSE,span = 0.3) +
+                                                 scale_colour_manual(values = classpal.r,name='Response trait class',
+                                                                     guide=guide_legend(title.position = 'top')) +
+                                                 theme(legend.direction = 'horizontal',
+                                                       legend.key = element_blank())))
+
+
+selRP <- grid.arrange(grobs=selRP.list,ncol=4)
+
+
+
+#### After checking plots continuing with the variable set without coordinates #########
+
+###  Cross-validation ----
+
+## Insert number of cross-validation runs required
+nruns <- 10 
+
+## Determine names of predictors to be used 
+preds <-   c(crval2[[1]],facvars)
+predselnf <- predsel[!predsel %in% facvars]
+
+# Set up lists for looping through
+train.sets <- list()
+test.sets <- list()
+
+# Split for 10 random subsets (list of row numbers)
+trainIndex <- createDataPartition(mdata$resp, p = .75,
+                                  times = nruns)
+# Create train and tests sets
+for (j in 1:10){
+  
+  train.sets[[j]] <- mdata[trainIndex[[j]],]
+  test.sets[[j]] <- mdata[-trainIndex[[j]],]
+  
+  next}
+
+
+## Run model
+
+# List objects to store outputs
+ffs <- list()
+imps <- list()
+res <- list()
+# Tables for collecting all model performance statistics
+# Class specific validation statistics
+class.res <- data.frame(Name=character(0),Run=character(0),Class=character(0),ClassN=character(0),
+                        Sens=numeric(0),Spec=numeric(0),BA=numeric(0),
+                        stringsAsFactors =F)
+
+# Validation statistics for whole model
+class.res.all <- data.frame(Name=character(0),
+                            Run=character(0),
+                            N=character(0),
+                            Acc=numeric(0),
+                            NIR=numeric(0),
+                            P=numeric(0),
+                            Kappa=numeric(0),
+                            Q=numeric(0),
+                            A=numeric(0),
+                            stringsAsFactors =F)
+
+# Combined validations statistic
+res.mat.all <- data.frame(Name=character(0),ModRun = numeric(),Comb=character(),
+                          Pred=character(),Obs=character(),Vals=numeric(),
+                          stringsAsFactors = FALSE)
+
+plotdata <- NULL
+plotdata2 <- NULL
+
+for (j in 1:10){
+  
+  train <- train.sets[[j]]
+  test <- test.sets[[j]]
+  
+  ffs[[j]] <- randomForest(resp ~.,data=train,
+                           ntree=500, replace=FALSE,importance=T, keep.forest= T)
+  
+  
+  results <- as.data.frame(rownames(test))
+  results$actual <- test[[1]]
+  # Predict class with model i
+  results$predicted <- as.data.table(predict(ffs[j],test))[,V1]
+  names(results) <- c("id", "actual", "predicted")
+  
+  # Calculate confusion matrix for predictions by model i
+  results.matrix <- confusionMatrix(results$predicted, results$actual)
+  results.matrix
+  
+  # Get the number of objects predicted into each class by model i
+  temp.pred <- NULL
+  s1dnrow <- nrow(s1d)
+  rs <- data.frame(start=c(1,ceiling(s1dnrow/3),2*ceiling(s1dnrow/3)),
+                   end=c(ceiling(s1dnrow/3)-1,2*ceiling(s1dnrow/3)-1,s1dnrow))
+  for (e in 1:nrow(rs)){
+    
+    ts1d <- s1d[rs[e,'start']:rs[e,'end'],]
+    ts1d$GearType <- factor('Scoop',levels = levels(mdata$GearType))
+    temp.pred <- rbind(temp.pred,as.data.table(predict(ffs[j],ts1d,'response')))
+    
+  } 
+  
+  pctObj <- as.data.frame(summary(temp.pred[,V1])/sum(summary(temp.pred[,V1])))
+  
+  # Get values from confusion matrix for model i into a data frame for future plotting
+  rnx <- 1
+  res.mat.0 <- data.frame(Name=character(), ModRun = numeric(),Comb=character(),
+                          Pred=character(),Obs=character(),Vals=numeric(),
+                          ValsP=numeric(),
+                          stringsAsFactors = FALSE)
+  
+  for (r in 1:dim(results.matrix$table)[1]){
+    
+    for (o in 1:dim(results.matrix$table)[2]){
+      rn <- rnx+o-1
+      res.mat.0[rn,2] <- j
+      labt <- paste(r,o,sep="") 
+      res.mat.0[rn,3] <- labt
+      res.mat.0[rn,4] <- levels(train[[1]])[r]
+      res.mat.0[rn,5] <- levels(train[[1]])[o]
+      res.mat.0[rn,6] <- results.matrix$table[r,o]
+      next
+    }
+    
+    CurSel <- res.mat.0[(rn-o+1):rn,]
+    PrVals <- res.mat.0[(rn-o+1):rn,6]
+    totPrCL <- sum(res.mat.0[(rn-o+1):rn,6])
+    
+    res.mat.0[(rn-o+1):rn,7] <- round((PrVals/totPrCL) * pctObj [[1]][r],3)
+    CurSel <- res.mat.0[(rn-o+1):rn,]
+    
+    labt <- paste(r,'P',sep="") 
+    rn <- rn+1
+    res.mat.0[rn,2] <- j
+    res.mat.0[rn,3] <- labt
+    res.mat.0[rn,4] <- levels(train[[1]])[r]
+    res.mat.0[rn,5] <- 'P'
+    res.mat.0[rn,6] <- round(100*(results.matrix$table[r,r]/rowSums(results.matrix$table)[r]),1)
+    res.mat.0[rn,7] <- round(100*(CurSel[CurSel[4]==CurSel[5],7]/sum(CurSel[7])),3)
+    
+    rnx <- rnx+dim(results.matrix$table)[2]+1
+    next
+  }
+  
+  
+  
+  for (o in 1:dim(results.matrix$table)[2]){
+    ObsClassVal <- res.mat.0[res.mat.0[2]==j & res.mat.0[5]==levels(train[[1]])[o] ,]
+    rn <- rnx+o-1
+    res.mat.0[rn,2] <- j
+    labt <- paste('U',o,sep="") 
+    res.mat.0[rn,3] <- labt
+    res.mat.0[rn,4] <- 'U'
+    res.mat.0[rn,5] <- levels(train[[1]])[o]
+    res.mat.0[rn,6] <- round(100*(results.matrix$table[o,o]/colSums(results.matrix$table)[o]),1)
+    res.mat.0[rn,7] <- round(100*(ObsClassVal[ObsClassVal[4]==ObsClassVal[5],7]/sum(ObsClassVal[7])),1)
+    next
+  }
+  
+  RunValAll <- res.mat.0[res.mat.0[2]==j,]
+  RunValAll$Pred <- factor(RunValAll$Pred,levels = c(levels(train[[1]]),"U","P"))
+  RunValAll$Obs <- factor(RunValAll$Obs,levels = c(levels(train[[1]]),"U","P"))
+  RunValAll$ValsP[is.nan(RunValAll$ValsP) & RunValAll$Pred !="U" & RunValAll$Pred !="P"] <- 0
+  RunValNum <- RunValAll[RunValAll[4]!="U" & RunValAll[5]!="P",]
+  RunValCor <- RunValNum[RunValNum[4]==RunValNum[5],]
+  Psum <- aggregate(ValsP~Pred,data=RunValNum,sum,na.action=na.pass)
+  Osum <- aggregate(ValsP~Obs,data=RunValNum,sum,na.action=na.pass)
+  
+  res.mat.0[rn+1,2] <- j
+  labt <- paste('U','P',sep="") 
+  res.mat.0[rn+1,3] <- labt
+  res.mat.0[rn+1,4] <- 'U'
+  res.mat.0[rn+1,5] <- 'P'
+  res.mat.0[rn+1,6] <- round(100*results.matrix[[3]][[1]],1)
+  res.mat.0[rn+1,7] <- round(100*(sum(RunValCor[7])/sum(RunValNum[7])),3)
+  
+  res.mat.all <- rbind(res.mat.all,res.mat.0)
+  
+  require(matrixStats)
+  sum(2*rowMins(as.matrix(cbind(Osum[2]-RunValCor[7],Psum[2]-RunValCor[7]))))/2
+  
+  # Get overall accuracy measures for model validation run i
+  class.res.all[j,2] <- j
+  class.res.all[j,3] <- nrow(test)
+  class.res.all[j,4] <- results.matrix[[3]][[1]]
+  class.res.all[j,5] <- results.matrix[[3]][[5]]
+  class.res.all[j,6] <- results.matrix[[3]][[6]]
+  class.res.all[j,7] <- results.matrix[[3]][[2]]
+  class.res.all[j,8] <- sum(abs(Osum[2]-Psum[2]))/2
+  class.res.all[j,9] <- sum(2*rowMins(as.matrix(cbind(Osum[2]-RunValCor[7],
+                                                      Psum[2]-RunValCor[7]))))/2
+  
+  class.res.0 <- data.frame(Name=character(0),Run=character(0),Class=character(0),ClassN=character(0),
+                            Sens=numeric(0),Spec=numeric(0),BA=numeric(0),
+                            stringsAsFactors =F)
+  
+  # Get class-specific accuracy measures for model validation run i
+  for (i in 1:numclass.r){
+    
+    class.res.0[i,2] <- j
+    class.res.0[i,3] <- row.names(as.data.frame(results.matrix[[4]]))[i]
+    class.res.0[i,4] <- sum(results.matrix$table[,i])
+    class.res.0[i,5] <- as.data.frame(results.matrix[[4]])[i,1]
+    class.res.0[i,6] <- as.data.frame(results.matrix[[4]])[i,2]
+    class.res.0[i,7] <- as.data.frame(results.matrix[[4]])[i,11]
+    
+    next
+  }
+  
+  class.res <- rbind(class.res,class.res.0)
+  
+  
+  ## Store Validation Results in main tables
+  class.res$Name <- tax
+  class.res
+  
+  
+  class.res.all$Name <- tax
+  class.res.all
+  
+  
+  res.mat.all$Name <- tax
+  res.mat.all
+  
+  
+  imps[[j]] <- list(round(randomForest::importance(ffs[[j]]), 2))
+  
+  require(pdp)
+  
+  for (p in 1:length(predselnf)) {
+    
+    for (c in levels(mdata$resp)) {
+      
+      pdata <- partial(ffs[[j]],pred.var = predselnf[p],which.class = c,
+                       plot = FALSE,train=mdata,grid.resolution=50,prob = TRUE)
+      predname <- predselnf[p]
+      temp <- data.frame(Name='resptrait',predvar=predselnf[p],class=c,x=pdata[[1]],y=pdata[[2]])
+      plotdata <- rbind(plotdata,temp)
+      
+    }
+    
+  }
+  
+  if (!is.null(facvars)) {
+    
+    for (f in 1:length(facvars)){
+      
+      for (c in levels(mdata$resp)) {
+        
+        pdata <- partial(ffs[[j]],pred.var = facvars[f],which.class = c,
+                         plot = FALSE,train=mdata,grid.resolution=50,prob = TRUE)
+        predname <- facvars[j]
+        temp <- data.frame(Name='resptrait',predvar=facvars[f],class=c,x=pdata[[1]],y=pdata[[2]])
+        plotdata2 <- rbind(plotdata2,temp)
+        
+      }
+      
+    }
+    
+    
+  }
+  
+  
+  next
+}
+
+## Add cross-validation results to tables collecting all values
+forest.class.res <- rbind(forest.class.res,class.res)
+forest.class.res.all <- rbind(forest.class.res.all,class.res.all)  
+forest.res.mat.all <- rbind(forest.res.mat.all,res.mat.all)
+
+
+### Add confusion matrix to collector list ----
+CMTX <-  as.data.table(res.mat.all)
+
+## Create and add performance tables to list ----
+
+## Separate the main matrix and producers, 
+## users and overall accuracy into different data frames
+res.mat.num <- res.mat.all[res.mat.all[4]!="U" & res.mat.all[5]!="P",]
+res.mat.num <- transform(res.mat.num, 
+                         Pred = factor(Pred, levels=levels(train[[1]])), 
+                         
+                         Obs = factor(Obs, levels=levels(train[[1]])))
+res.mat.up <- res.mat.all[res.mat.all[4]=="U" | res.mat.all[5]=="P",]
+res.mat.up <- transform(res.mat.up, 
+                        Pred = factor(Pred, levels = c(levels(train[[1]]),"U","P")),
+                        Obs = factor(Obs, levels = c(levels(train[[1]]),"U","P")))
+res.mat.up[res.mat.up$Comb=="UP","Comb"] <- "OA"
+highlights <- res.mat.num[res.mat.num[4]==res.mat.num[5],][1:numclass.r,4:6]
+
+
+## Compare between classes
+# Rename classes for class specific results for consistency
+str(class.res)
+class.res$Class <- as.factor(class.res$Class)
+levels(class.res[[3]])
+levels(class.res[[3]]) <- levels(train[[1]])
+class.res$Run <- as.numeric(class.res$Run)
+class.res$ClassN <- as.numeric(class.res$ClassN)
+
+# Calculate overall true positives and sensitivity for each model run
+TP <- aggregate(Vals~ModRun,data=res.mat.num[res.mat.num$Pred == res.mat.num$Obs,],sum)
+SEN <- TP[2]/aggregate(Vals~ModRun,data=res.mat.num,sum)[2]
+
+# Calculate overall true negatives and specififity for each model run
+negs <- rep(0,length(unique(res.mat.num[1])[[1]]))
+tnegs <- rep(0,length(unique(res.mat.num[1])[[1]]))
+
+for (i in unique(res.mat.num[4])[[1]]){
+  
+  inegs <- aggregate(Vals~ModRun,data=res.mat.num[res.mat.num$Obs != i,],sum)
+  negs <- negs+inegs[[2]]
+  itnegs <- aggregate(Vals~ModRun,data=res.mat.num[res.mat.num$Obs != i & res.mat.num$Pred != i ,],sum)
+  tnegs <- tnegs+itnegs[[2]]
+  
+  
+  next
+}
+
+SPE <- tnegs/negs
+
+# Calculate overall balanced accuracy for each model run   
+BA <- (SEN+SPE)/2
+
+# Combine values to a matrix
+classrestot <- data.frame('resptrait',1:length(SPE),"Overall",nrow(train),SEN,SPE,BA)
+names(classrestot) <- names(class.res)
+
+# Add overall accuracy values to class specific table
+classvalB <- rbind(class.res,classrestot)
+
+classvalB
+str(classvalB)
+
+# Calculate averages and standard deviations for validation statistics across model runs
+cavevalsB <- aggregate(x = classvalB[4:7], by = list(classvalB$Class), FUN = "mean")
+csdvalsB <- aggregate(x = classvalB[4:7], by = list(classvalB$Class), FUN = "sd")
+
+# Combine values in a table
+BCvalsT <- data.frame(Name=cavevalsB[1],
+                      N=cavevalsB[2],
+                      SENSmean=round(cavevalsB[3],2),
+                      SENSsd=round(csdvalsB[3],2),
+                      SPECmean=round(cavevalsB[4],2),
+                      SPECsd=round(csdvalsB[4],2),
+                      BAmean=round(cavevalsB[5],2),
+                      BAsd=round(csdvalsB[5],2))
+# Rename columns
+names(BCvalsT) <- c("Name","N","SENSmean","SENSsd","SPECmean","SPECsd",
+                    "BAmean","BAsd")
+# Print table
+BCvalsT
+
+asg.cl.perf <- data.table(Cluster=BCvalsT$Name,
+                          N =BCvalsT$N,
+                          'Sensitivity'= paste(BCvalsT$SENSmean, '\u00B1',BCvalsT$SENSsd),
+                          'Specificity' =  paste(BCvalsT$SPECmean, '\u00B1',BCvalsT$SPECsd),
+                          'Balanced Accuracy'= paste(BCvalsT$BAmean, '\u00B1',BCvalsT$BAsd))
+
+
+
+## Add to the performance data table collator list
+PScs <- rbind(PScs,data.table(Tax=tax,asg.cl.perf[-7, ]))
+
+### Plot the class specific accuracies ----
+
+str(classvalB)
+
+require(reshape2)
+plotterBC <-melt(classvalB,id.vars=c(3),measure.vars=c(5:7))
+str(plotterBC)
+levels(plotterBC$variable)
+levels(plotterBC$variable) <- c("Sensitivity","Specificity","Balanced Accuracy")
+
+require(ggplot2)
+ssbp <- ggplot(plotterBC,(aes(x=Class,y=value,fill=Class))) +
+  geom_boxplot(width=0.7,position=position_dodge(width=0.71)) +
+  scale_fill_manual(values=c(classpal.r,'#000000')) +
+  facet_wrap(~ variable) +
+  ylim(c(0,1)) +
+  ggtitle("Accuracy Statistics Per Class") +
+  theme(axis.title.y = element_blank(),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_text(angle=90,vjust=0.5, size=12,colour="black"),
+        axis.title.x  = element_blank(),
+        plot.title =  element_text(size=14,colour="black", face = "bold",vjust=2),
+        strip.background = element_rect(fill="grey40"),
+        strip.text.x = element_text(size=14, face="bold",colour="white"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"))
+
+
+### Look at the Whole classification ----
+class.res.all
+classvalB.all <- data.frame(class.res.all,Sens=SEN[[1]],Spec=SPE,BA=BA[[1]])
+classvalB.all$N <- as.numeric(classvalB.all$N)
+
+# Calculate averages and standard deviations for validation statistics
+callavevalsB <- colMeans(classvalB.all[,4:12])
+callsdvalsB <- colSds(as.matrix(classvalB.all[,4:12]))
+
+# Combine values in a table
+BCallvalsT <- data.frame(Accmean=round(callavevalsB[1],2),
+                         Accsd=round(callsdvalsB[1],2),
+                         Pmean=round(callavevalsB[3],2),
+                         Psd=round(callsdvalsB[3],2),
+                         Kmean=round(callavevalsB[4],2),
+                         Ksd=round(callsdvalsB[4],2),
+                         Qmean=round(callavevalsB[5],2),
+                         Qsd=round(callsdvalsB[5],2),
+                         Amean=round(callavevalsB[6],2),
+                         Asd=round(callsdvalsB[6],2),
+                         Sensmean=round(callavevalsB[7],2),
+                         Senssd=round(callsdvalsB[7],2),
+                         Specmean=round(callavevalsB[8],2),
+                         Specsd=round(callsdvalsB[8],2),
+                         BAmean=round(callavevalsB[9],2),
+                         BAsd=round(callsdvalsB[9],2))
+
+# Rename columns
+names(BCallvalsT) <- c("Accmean","Accsd","Pmean","Psd","Kmean","Ksd",
+                       "Qmean","Qsd","Amean","Asd","Sensmean","Senssd",
+                       "Specmean","Specsd","BAmean","BAsd")
+
+
+# Print table
+BCallvalsT
+
+asg.perf <- data.table(N = nrow(train),
+                       'Sensitivity'= paste(BCallvalsT$Sensmean, '\u00B1',BCallvalsT$Senssd),
+                       'Specificity' =  paste(BCallvalsT$Specmean, '\u00B1',BCallvalsT$Specsd),
+                       'Kappa' = paste(BCallvalsT$Kmean, '\u00B1',BCallvalsT$Ksd) ,
+                       'Balanced Accuracy'= paste(BCallvalsT$BAmean, '\u00B1',BCallvalsT$BAsd),
+                       'Quantity Disagreement'=paste(BCallvalsT$Qmean, '\u00B1',BCallvalsT$Qsd),
+                       'Allocation Disagreement'=paste(BCallvalsT$Amean, '\u00B1',BCallvalsT$Asd))
+
+
+## Add to Performance stats collator list
+PSas <- rbind(PSas,data.table(Tax=tax,asg.perf[, data.table(t(.SD), keep.rownames=TRUE),]))
+
+
+#### Observed vs. predicted plot ----
+
+## Plot of confusion matrix and accuracies
+
+## Define the plot of main confusion matrix
+## Main plot
+p <-  ggplot(res.mat.num,(aes(x=Obs,y=Vals))) +
+  geom_boxplot(width=0.7,fill=cpl['dt']) +
+  facet_grid(Pred~Obs, scales = "free") +
+  ylab("PREDICTED\n ") +
+  ggtitle("OBSERVED\n ") + 
+  OneB_theme +
+  theme(axis.title.y = element_text(size=12,colour="black", face = "bold",vjust=2),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_blank(),
+        axis.title.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="black", face = "bold",vjust=0.7),
+        strip.text.x = element_text(size=12, face="bold",colour="white"),
+        strip.text.y = element_text(size=12, face="bold",colour="white"),
+        strip.background = element_rect(fill="grey30"),
+        panel.grid.major = element_line(colour="grey90"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill="white",color="grey30", 
+                                        linewidth =0.5, linetype="solid"),
+        #plot.margin = unit(c(0.5, 0, 0,0.7), "cm")
+  )
+
+p
+
+## Add shading to diagonal
+fillcol <- "grey80" 
+p1 <- p + geom_rect(data=highlights,aes(xmin=-Inf, xmax=Inf, ymin=-Inf, ymax=Inf), 
+                    fill=fillcol, alpha=0.3) +
+  geom_boxplot(data=res.mat.num,aes(x=Obs,y=Vals),width=0.7,fill=cpl['dt'])
+p1
+
+
+### Define plot of the ranges of users accuracies
+p2 <-  ggplot(res.mat.up[grep("U",res.mat.up$Comb),],(aes(x=Comb,y=Vals))) +
+  geom_boxplot(width=0.7,position=position_dodge(width=0.71),fill=cpl['dt']) +
+  expand_limits(y=c(0,100)) +
+  facet_wrap(~Comb, nrow = 1,scales = "free_x") +
+  ylab("USERS \n ACCURACY %") +
+  ggtitle("  ") + 
+  theme(axis.title.y = element_text(size=12,colour="black", face = "bold",vjust=1.7),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        plot.title =  element_text(size=18,colour="black", face = "bold",vjust=2),
+        strip.text.x = element_blank(),
+        strip.text.y = element_blank(),
+        strip.background = element_blank(),
+        panel.grid.major = element_line(colour="grey90"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill="white",color="grey30", size=0.5, linetype="solid"),
+        #plot.margin = unit(c(0.5, 0.8, 0, 0.5), "cm")
+  )
+p2
+
+### Define plot of the ranges of producers accuracies
+p3 <-  ggplot(res.mat.up[grep("U",res.mat.up$Comb),],(aes(x=Comb,y=Vals))) +
+  geom_boxplot(width=0.7,position=position_dodge(width=0.71),fill=cpl['dt']) +
+  expand_limits(y=c(0,100)) +
+  facet_wrap(~Comb, ncol=1,scales = "free_x") +
+  ggtitle("PRODUCER'S \n ACCURACY %") + 
+  theme(axis.title.y = element_blank(),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="black", face = "bold",vjust=0),
+        strip.text.x = element_blank(),
+        strip.text.y = element_blank(),
+        strip.background = element_blank(),
+        panel.grid.major = element_line(colour="grey90"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill="white",color="grey30", 
+                                        size=0.5, linetype="solid"),
+        #panel.spacing = unit(c(0, 0, 0, 0), "cm"),
+        #plot.margin = unit(c(0.4, 0.3, 0.1, 0.5), "cm")
+  )
+p3
+
+### Define plot of the ranges of overall accuracy
+p4 <-  ggplot(res.mat.up[grep("OA",res.mat.up$Comb),],(aes(x=Comb,y=Vals))) +
+  geom_boxplot(width=0.7,position=position_dodge(width=0.71),fill=cpl['dt']) +
+  expand_limits(y=c(0,100)) +
+  facet_wrap(~Comb, ncol=1,scales = "free_x") +
+  ggtitle("OVERALL \n ACCURACY %") + 
+  theme(axis.title.y = element_blank(),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x = element_blank(),
+        axis.text.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="black", face = "bold",vjust=0),
+        strip.text.x = element_blank(),
+        strip.text.y = element_blank(),
+        strip.background = element_blank(),
+        panel.grid.major = element_line(colour="grey90"),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(fill="white",color="grey30", 
+                                        size=0.5, linetype="solid"),
+        #panel.margin = unit(c(-0.5, -0.35, -0.5, -0.35), "cm"),
+        #plot.margin = unit(c(0.1, 0.3, 0, 0.5), "cm")
+  )
+p4
+
+
+## Combine the plots into a single layout
+
+# Set up the page
+sq.main <- nlevels(plotterBC[[1]])*4
+
+require(patchwork)
+confmatpl <- p1 +  p3 + p2 +p4 + 
+  plot_layout(heights=c(sq.main, 4.7),widths=c(sq.main, 4.7))
+confmatpl
+
+### Importance plot ----
+imppl <- data.table(Var=rownames(imps[[1]][[1]]))
+
+for (i in 1:10){
+  
+  imppl <- cbind(imppl,as.data.table(imps[[i]][[1]])[,1])
+  
+}
+
+setnames(imppl,c('Var','Imp1','Imp2','Imp3','Imp4','Imp5','Imp6','Imp7','Imp8','Imp9','Imp10'))
+
+imppl[,
+      c("Mean",'Sd','Se') := 
+        .(rowMeans(.SD, na.rm = TRUE), 
+          apply(.SD, 1, sd, na.rm = TRUE),
+          apply(.SD, 1, plotrix::std.error, na.rm = TRUE)), 
+      .SDcols = 2:11]
+
+imppl[,Var:=factor(Var,levels=Var[order(Mean)])]
+
+## Add plot to importance plot data to collator list
+VIs <- rbind(VIs,data.table(Tax=tax,imppl[,.SD,.SDcols=c('Var','Mean','Se')]))
+
+impplot <-  ggplot(imppl,(aes(x=Var,y=Mean))) +
+  geom_bar(stat = 'identity',fill='#66afad', col='#172957',) +
+  scale_x_discrete(labels=envlab[levels(imppl$Var)]) +
+  geom_linerange(inherit.aes=FALSE,
+                 aes(x=Var, ymin=Mean-Se, ymax=Mean+Se), 
+                 colour='#172957', alpha=0.9, linewidth=1.3) +
+  ylab(label = 'Mean decrease in Gini coefficient') +
+  coord_flip() +
+  theme(axis.title.y = element_blank(),
+        axis.text.y  = element_text(vjust=0.5,hjust = 1, size=12,colour="black"),
+        axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.title.x  = element_text(vjust=-4, size=12,colour="black"),
+        plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+        strip.background = element_rect(fill="grey90"),
+        strip.text.x = element_text(size=12, face="bold"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"),
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA),
+        legend.text = element_text(size=12,colour="black"),
+        plot.margin = ggplot2::margin(0.5, 0.5, 1, 0.5, "cm"),)
+impplot
+
+
+## Response plot ----
+
+# List for plot objects
+cvRP.list <- list()
+
+
+for (i in predselnf) {
+  
+  cvRP.list[[i]] <- ggplot(plotdata[plotdata$predvar==i,],aes(x=x,y=y,col=class)) +
+    geom_smooth(method = 'loess',size=0.8,se=FALSE,span = 0.3,show.legend = FALSE) +
+    facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+    scale_colour_manual(values = classpal.r) +
+    ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+    theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.text.x  = element_text(vjust=0.5, size=12,colour="black"),
+          axis.title.x  = element_blank(),
+          plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+          strip.background = element_rect(fill="grey90"),
+          strip.text.x = element_text(size=12, face="bold"),
+          panel.grid.major = element_line(colour="grey80"),
+          panel.grid.minor = element_line(colour="grey80"),
+          panel.background = element_rect(fill="white"),
+          legend.title = element_blank(),
+          legend.key = element_rect(fill = NA),
+          legend.text = element_text(size=12,colour="black"))
+}
+
+cvRP.list[['GearType']] <-  ggplot(plotdata2, aes(x=x,y=y,fill=class)) +
+  geom_bar(stat = 'identity',position = "dodge",show.legend = FALSE) +
+  scale_fill_manual(values = classpal.r) +
+  facet_wrap(~ predvar,scales = "free_x", ncol=3,labeller = labeller(predvar=envlab)) +
+  ylim(c(min(c(0,plotdata$y)),max(plotdata$y))) +
+  theme(axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+        axis.text.x  = element_text(vjust=0.5, size=12,colour="black",angle = 0),
+        axis.title.x  = element_blank(),
+        plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+        strip.background = element_rect(fill="grey90"),
+        strip.text.x = element_text(size=12, face="bold"),
+        panel.grid.major = element_line(colour="grey80"),
+        panel.grid.minor = element_line(colour="grey80"),
+        panel.background = element_rect(fill="white"),
+        legend.title = element_blank(),
+        legend.key = element_rect(fill = NA),
+        legend.text = element_text(size=12,colour="black"))
+
+cvRP.list[['Legend']] <- as_ggplot(get_legend(ggplot(plotdata[plotdata$predvar== "SPM_MEAN",],aes(x=x,y=y,col=class)) +
+                                                geom_smooth(method = 'loess') +
+                                                scale_colour_manual(values = classpal.r,name='Response trait class',
+                                                                    guide=guide_legend(title.position = 'top',)) +
+                                                theme(legend.direction = 'horizontal',
+                                                      legend.key = element_blank(),
+                                                      axis.title.y = element_text(vjust=0.5, size=12,colour="black"),
+                                                      axis.text.y  = element_text(vjust=0.5, size=12,colour="black"),
+                                                      axis.text.x  = element_text(vjust=0.5, size=12,colour="black",angle = 0),
+                                                      axis.title.x  = element_blank(),
+                                                      plot.title =  element_text(size=12,colour="white", face = "bold",vjust=2),
+                                                      strip.background = element_rect(fill="grey90"),
+                                                      strip.text.x = element_text(size=12, face="bold"),
+                                                      panel.grid.major = element_line(colour="grey80"),
+                                                      panel.grid.minor = element_line(colour="grey80"),
+                                                      panel.background = element_rect(fill="white"),
+                                                      #legend.key = element_rect(fill = NA),
+                                                      #legend.text = element_text(size=12,colour="black")
+                                                )))
+
+
+# Combine all plots to one canvas
+cvRP <- wrap_plots(cvRP.list) +
+  plot_layout(heights=1,widths=2)
+cvRP
+
+
+# Whole model performance table
+asg.perf[, data.table(t(.SD), keep.rownames=TRUE),] %>%
+  kbl('html',digits = 2,escape = FALSE, col.names = c('Statistic','Mean \u00B1 SD'),
+      caption='Whole model performance') %>%
+  kable_classic(full_width = F, position = "left",fixed_thead = T) %>%
+  row_spec(0, bold = T)  %>%
+  column_spec(1:2, width = "3cm") 
+
+# Class-specific performance table
+asg.cl.perf[-7, ] %>%
+  kbl('html',digits = 2,escape = FALSE, align=c('l',rep('r', 4)),
+      caption='Class-specific performance') %>%
+  kable_classic(full_width = F, position = "left",fixed_thead = T) %>%
+  row_spec(0, bold = T)  %>%
+  column_spec(1:2, width = "1.5cm") %>%
+  column_spec(3:5, width = "3cm")
+
+### Make model predictions ----
+
+# Drop unnecessary predictor layers 
+dr <- names(s1)
+dr <- dr[!dr %in% names(ffs[[1]]$forest$xlevels)]
+s2 <- dropLayer(s1, dr)
+
+# Set gear type as standard across prediction
+GearType <- data.frame(GearType=factor('Scoop',levels = ffs[[1]]$forest$xlevels$GearType))
+
+# Set up objects to save rasters into
+cvpred <- NULL
+cvpred.cps <- list()
+
+# Set number of runs
+nruns=10
+
+# Predict to all model runs
+for (i in 1:length(ffs)){
+  
+  rnn <-  paste0('Run',i)
+  
+  if (is.null(cvpred)){
+    cvpred  <- stack(raster::predict(s2,ffs[[i]],const=GearType))
+    names(cvpred) <- rnn
+  } else {
+    tmpl <- predict(s2,ffs[[i]],const=GearType)
+    names(tmpl) <- rnn
+    cvpred <- addLayer(cvpred,tmpl)
+  }
+  
+  
+  cvpred.cps[[rnn]] <- predict(s2,ffs[[i]],const=GearType,type='prob',index=1:numclass.r)
+  
+}
+
+
+
+### Create a raster stack for spatial confidence results
+ROutput <- stack()
+
+### Calculate most frequent class and its frequency
+
+# Most frequent class
+MaxClass <- modal(cvpred,freq=FALSE)
+ROutput <- addLayer(ROutput,MaxClass)
+# Frequency of most frequent class (fraction of runs)
+MaxClassF <- modal(cvpred,freq=TRUE)/nruns
+ROutput <- addLayer(ROutput,MaxClassF)
+
+### Calculate average probabilities for classes
+classsums <- Reduce("+", cvpred.cps)
+AvePclass <- classsums / nruns
+
+### Find average probability of maximum frequency class
+MaxClassAveProb <- stackSelect(AvePclass, MaxClass)
+ROutput <- addLayer(ROutput,MaxClassAveProb)
+
+### Calculate new layer for frequency x probability
+CombConf <- MaxClassF * MaxClassAveProb
+ROutput <- addLayer(ROutput,CombConf)
+
+### Rename layers
+names(ROutput) <- c("MaxClass","MaxClassF","MaxClassAveProb","CombConf")
+
+### Plot layers 
+plot(ROutput)
+
+rm(MaxClass,MaxClassF,classsums,AvePclass,MaxClassAveProb,CombConf)
+
+### Export Raster
+writeRaster(ROutput, "ResponseTraitRasterBootOutput_Apr22.tif", format="GTiff",overwrite=T)
+writeRaster(ROutput$MaxClass, "ResponseTraitMaxClass_Apr22.tif", format="GTiff",overwrite=T)
+writeRaster(ROutput$MaxClassF, "ResponseTraitMaxClassFrequency_Apr22.tif", format="GTiff",overwrite=T)
+writeRaster(ROutput$MaxClassAveProb, "ResponseTraitMaxClassAveProb_Apr22.tif", format="GTiff",overwrite=T)
+writeRaster(ROutput$CombConf, "ResponseTraitConfidence_Apr22.tif", format="GTiff",overwrite=T)
+
+### Save raster stack to R workspace
+save(AvePclass,ROutput,file="ResponseTraitRasterBootOutput.RData")
+
+
+# Summary statistics for the rasters
+ROutput$MaxClass
+ROutput$MaxClass <- as.factor(ROutput$MaxClass)
+rat <- levels(ROutput$MaxClass)[[1]]
+rat$Cluster <- levels(pshp$resptrait)
+levels(ROutput$MaxClass) <- rat
+
+
+# Plot rasters
+extbb <- tmaptools::bb(pshp_sf,ext = 1.1,)
+mpr <-  tm_shape(ROutput$MaxClass) + 
+  tm_raster(title = 'Response trait cluster', #col='Cluster',
+            style="fixed",
+            palette=classpal.r,
+            breaks = c(1:7),
+            labels = levels(pshp$resptrait),
+            legend.hist = TRUE) +
+  tm_layout(legend.outside = TRUE,
+            legend.outside.position = c("right","bottom"),
+            legend.hist.height = 0.3,
+            legend.hist.width = 0.7) +
+  tm_shape(countries) +
+  tm_grid(lines = FALSE,n.x = 4, n.y = 3) +
+  tm_polygons() +
+  tm_compass(position = c("right", "top")) +
+  tm_scale_bar(position = c("right", "bottom"))
+mpr
+
+msd <-  tm_shape(ROutput$CombConf) + 
+  tm_raster(title = 'Confidence',
+            style="fixed",
+            breaks = c(0,0.2,0.4,0.6,0.8,1),
+            palette="RdYlGn",
+            n = 5,
+            legend.hist = FALSE) +
+  tm_layout(legend.outside = TRUE) +
+  tm_shape(countries) +
+  tm_grid(lines = FALSE,n.x = 4, n.y = 3) +
+  tm_polygons()
+msd
+
+
+
+
+##### 5. Effects traits model   ########################################################
+
+### Repeat above with ####
+tax='efftraits'
 
 #_______________________________________________________________________________
 #### PRODUCE SIDE BY SIDE PLOT FOR RESPONSE TRAITS ####
@@ -1190,8 +2709,7 @@ library(raster)
 library(leaflet)
 ## Load raster data layers
 bathy <- raster("DATA/Rasters/Final/bathy3.tif")
-pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/ResponseTraitMaxClass_Apr22.tif') #Anna's version
-#pr = raster('DATA/EffectsTraitsCluster.tif')
+pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/ResponseTraitMaxClass_Apr22.tif')
 
 ## Exaggerate the vertical scale (bathy not very clear unless you do this)
 bathy2 <- bathy*bathy
@@ -1262,9 +2780,7 @@ library(raster)
 
 ## Load raster data layers
 bathy <- raster("DATA/Rasters/Final/bathy3.tif")
-#pr = raster('Y:/C8210_OneBenthic/Working_Area/SDM/OUTPUT/EffectsTraitMaxClass.tif') #Anna's version
-pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/EffectsTraitMaxClass_Apr22.tif') #Anna's version
-#pr = raster('DATA/EffectsTraitsCluster.tif')
+pr = raster('Y:/C8381_OWEC_POSEIDON/Working_Area/SDM/OUTPUT/OneBenthicModelPredictionsApril22/EffectsTraitMaxClass_Apr22.tif')
 
 ## Exaggerate the vertical scale (bathy not very clear unless you do this)
 bathy2 <- bathy*bathy
